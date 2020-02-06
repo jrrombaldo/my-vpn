@@ -133,3 +133,8 @@ resource "aws_instance" "my-vpn" {
   subnet_id       = module.vpc.public_subnets[0]
   user_data = data.template_file.user_data.rendered
 }
+
+
+output "vpn_addr" {
+  value = ["${aws_instance.my-vpn.public_ip}"]
+}
