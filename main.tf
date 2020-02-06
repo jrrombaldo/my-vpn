@@ -10,7 +10,6 @@ resource "null_resource" "supporting-buckets" {
   # triggers = {
   #   build_number = timestamp()
   # }
-
   provisioner "local-exec" {
     working_dir = "${path.module}/"
     command     = "sh ./scripts/support-buckets.sh"
@@ -24,6 +23,7 @@ resource "null_resource" "supporting-buckets" {
   }
 }
 
+
 terraform {
   backend "s3" {
     bucket  = "my-vpn-state"
@@ -36,8 +36,8 @@ terraform {
 
 
 resource "aws_key_pair" "my_key" {
-  key_name   = "my-vpn"
-  public_key = "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQC3h4Iy0jClTakfnVDeuCQef2a6tyUm9rqjshutGvLd6QH8KNHRZKTKinPO++nrfpZYR9g7f9OBp6JzTp63pSfGYeHt9sfEeiDg6f8RRry1i9OIv7QcoedCCMgUWg06Xx479U8kySsCcDUwFD6YaEGZfGX8+v/Ccuul///GkX6MsxRpH2/Gd7rUrtc/bNwJb8jp6m31uvfsMOiy0YeFicv5IqOBI8UhH4VIlwsH7wfcUrgitj4wjM0KsCsIta+Lv59LHPeyXIJUMyJhxcv5hgfY7V7XTsA4OMtDLSMuzRsq1+1NGaLHdJGgRghHN7DsHS9MwjAJixLnsXC9k1ff/T87 elcano-vpn-key"
+  key_name   = var.keypair_name
+  public_key = "${file(var.keypair_pub_file)}"
 }
 
 
@@ -46,9 +46,10 @@ data "aws_availability_zones" "azs" {
   state = "available"
 }
 
+
 data "aws_ami" "amazon-linux-2" {
   most_recent = true
-  owners =["amazon"]
+  owners      = ["amazon"]
   # filter {
   #   name   = "owner-alias"
   #   values = ["amazon"]
@@ -59,14 +60,17 @@ data "aws_ami" "amazon-linux-2" {
   }
 }
 
-data "template_file" "init" {
-  # template = "${file("init.tpl")}"
-  template = "${file("scripts/user_data.sh")}"
-  # vars = {
-  #   consul_address = "${aws_instance.consul.private_ip}"
-  # }
-}
 
+data "template_file" "user_data" {
+  template = "${file("${path.module}/scripts/user_data.tpl")}"
+  vars = {
+    VPN_PWD     = var.VPN_PWD
+    VPN_ADDR    = var.VPN_ADDR
+    VPN_DNS1    = var.VPN_DNS1
+    VPN_DNS2    = var.VPN_DNS2
+    VPN_CFG_DIR = var.VPN_CFG_DIR
+  }
+}
 
 
 module "vpc" {
@@ -91,7 +95,6 @@ module "vpc" {
 }
 
 
-
 resource "aws_security_group" "my-vpn-sg" {
   name        = "my-vpn"
   description = "MyVPN Secruity Group"
@@ -108,22 +111,25 @@ resource "aws_security_group" "my-vpn-sg" {
     protocol    = "tcp"
     cidr_blocks = ["0.0.0.0/0"]
   }
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
   tags = {
     Name = "MyVPN"
   }
 }
 
-# https://github.com/terraform-aws-modules/terraform-aws-vpc
+
+# could use this: https://github.com/terraform-aws-modules/terraform-aws-vpc
 resource "aws_instance" "my-vpn" {
-  ami              = data.aws_ami.amazon-linux-2.id
+  ami             = data.aws_ami.amazon-linux-2.id
   instance_type   = var.instance_type
   key_name        = aws_key_pair.my_key.id
   monitoring      = true
   security_groups = [aws_security_group.my-vpn-sg.id]
   subnet_id       = module.vpc.public_subnets[0]
-  # user_data        = ""
-  # user_data_base64 = ""
+  user_data = data.template_file.user_data.rendered
 }
-
-
-
